@@ -14,6 +14,7 @@ services:
       - type: volume
         source: elasticsearch
         target: /usr/share/elasticsearch/data
+      - "./elasticsearch/logging.yml:/usr/share/elasticsearch/config/logging.yml:ro"
     ports:
       - "9200:9200"
       - "9300:9300"
@@ -39,6 +40,10 @@ services:
       - type: bind
         source: ./logstash/pipeline
         target: /usr/share/logstash/pipeline
+        read_only: true
+      - type: bind
+        source: ./mysql/logs
+        target: /var/log/
         read_only: true
     ports:
       - "5044:5044"
@@ -68,6 +73,64 @@ services:
       - elk
     depends_on:
       - elasticsearch
+
+  mysql:
+    image: mysql:5.7
+    volumes:
+      - ./mysql/logs:/var/log/mysql
+      - ./mysql/my.cnf:/etc/mysql/my.cnf
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    networks:
+      - elk
+
+  #Filebeat container
+  filebeat:
+    user: root
+    image: "docker.elastic.co/beats/filebeat:$ELK_VERSION"
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      - ./filebeat/prospectors.d/:/usr/share/filebeat/prospectors.d/
+      - /var/lib/docker/containers:/hostfs/var/lib/docker/containers
+      - ./mysql/logs/:/var/log/mysql/
+    networks:
+      - elk
+    command: filebeat -e -E output.elasticsearch.username=elastic -E output.elasticsearch.password=changeme -strict.perms=false
+    restart: on-failure
+
+  mongodb:
+    image: mongo:3
+    command: "mongod --config /conf/mongo.conf"
+    volumes:
+      - "./mongo:/conf/"
+    networks:
+      - elk
+
+  graylog:
+    image: graylog2/server:latest
+    environment:
+      GRAYLOG_PASSWORD_SECRET: Bgw7mYROifuwMCojIcuQ0PYCiuwtOWNSIQBV6fbIfNIzpFFxKrVcRDOxJOPBmjHPhOA5uT928Ll9LlfpPEWxsy9a4VSgZebo
+      GRAYLOG_ROOT_PASSWORD_SHA2: 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
+      GRAYLOG_WEB_ENDPOINT_URI: http://127.0.0.1:9000/api
+      GRAYLOG_MONGODB_URI: mongodb://mongodb.service/graylog
+      GRAYLOG_MONGODB_MAX_CONNECTIONS: 100
+      GRAYLOG_MONGODB_THREADS_ALLOWED_TO_BLOCK_MULTIPLIER: 5
+      GRAYLOG_ELASTICSEARCH_CLUSTER_NAME: graylog
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://elastic:changeme@elasticsearch:9200
+    links:
+      - "elasticsearch:elasticsearch"
+      - "mongodb:mongodb.service"
+    ports:
+      - "9000:9000"
+      - "12201:12201"
+      - "1514:1514"
+    networks:
+      - elk
 
 networks:
   elk:

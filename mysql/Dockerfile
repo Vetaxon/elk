@@ -1,0 +1,4 @@
+ARG ELK_VERSION
+
+FROM mysql:5.7
+
